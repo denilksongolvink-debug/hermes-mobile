@@ -1,0 +1,8 @@
+[stack]
+name = "mcps"
+autostart = false
+
+[[service]]
+name = "example"
+cmd = "echo mcp placeholder"
+restart = "no"

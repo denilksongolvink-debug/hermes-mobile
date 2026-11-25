@@ -19,9 +19,12 @@ android {
     compileSdk = 37
     buildToolsVersion = "37.0.0"
     defaultConfig {
-        applicationId = "com.m57.hermescontrol"
+        applicationId = "com.m57.hermescontrol.embedded"
         minSdk = 26
         targetSdk = 37
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
         // Version overrides passed from CI via -PversionName / -PversionCode
         // Falls back to defaults for local development.
         versionCode = (project.findProperty("versionCode") as? String)?.toIntOrNull() ?: 1
@@ -87,6 +90,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             pickFirsts += "META-INF/AL2.0"
             pickFirsts += "META-INF/LGPL2.1"

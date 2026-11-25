@@ -60,6 +60,7 @@ import com.m57.hermescontrol.ui.sessions.SessionsScreen as HistoryScreenContent
 import com.m57.hermescontrol.ui.settings.SettingsScreen as SettingsScreenContent
 import com.m57.hermescontrol.ui.skills.SkillsScreen as SkillsScreenContent
 import com.m57.hermescontrol.ui.system.SystemScreen as SystemScreenContent
+import com.m57.hermescontrol.ui.stacks.StacksScreen as StacksScreenContent
 import com.m57.hermescontrol.ui.toolsets.ToolsetsScreen as ToolsetsScreenContent
 import com.m57.hermescontrol.ui.webhooks.WebhooksScreen as WebhooksScreenContent
 
@@ -215,6 +216,12 @@ object ScreenRegistry {
                 Icons.Filled.Dns,
                 DrawerSection.INSPECT,
             ) { sessionId, openDrawer -> SystemScreenContent(onOpenDrawer = openDrawer) },
+            ScreenDefinition(
+                StacksScreen,
+                R.string.screen_stacks,
+                Icons.Filled.Dns,
+                DrawerSection.INSPECT,
+            ) { sessionId, openDrawer -> StacksScreenContent() },
             ScreenDefinition(
                 LogsScreen,
                 R.string.screen_logs,

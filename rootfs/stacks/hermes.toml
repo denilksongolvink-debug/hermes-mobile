@@ -1,0 +1,11 @@
+[stack]
+name = "hermes"
+autostart = true
+
+[[service]]
+name = "dashboard"
+cmd = "/opt/hermes/venv/bin/hermes dashboard --host 127.0.0.1 --port 9000"
+cwd = "/root"
+restart = "on-failure"
+max_rss_mb = 900
+env = { HERMES_HOME = "/root/.hermes" }
