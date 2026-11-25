@@ -24,7 +24,9 @@ fun ProotDebugScreen(modifier: Modifier = Modifier) {
         Button(onClick = {
             Thread {
                 try {
-                    val pb = ProcessBuilder(rt.buildCommand("uname -a"))
+                    val inv = rt.buildCommand("uname -a")
+                    val pb = ProcessBuilder(listOf(inv.program) + inv.args)
+                    pb.environment().putAll(inv.env)
                     val p = pb.start()
                     output = p.inputStream.bufferedReader().readText()
                     p.waitFor()

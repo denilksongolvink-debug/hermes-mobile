@@ -63,7 +63,8 @@ pub struct ServiceHandle {
     pub spec: ServiceSpec,
     pub log: LogBuffer,
     pub state: Arc<Mutex<ServiceState>>,
-    pub proot_bin: Option<String>,
+    pub native_dir: Option<String>,
+    pub files_dir: Option<String>,
     pub rootfs: Option<String>,
 }
 
@@ -86,34 +87,52 @@ impl ServiceHandle {
     }
 
     fn build_command(&self) -> Command {
-        let mut cmd = if let (Some(proot), Some(rootfs)) = (&self.proot_bin, &self.rootfs) {
-            let mut c = Command::new(proot);
-            c.arg("-r").arg(rootfs);
-            c.arg("-b").arg("/dev");
-            c.arg("-b").arg("/proc");
-            c.arg("-b").arg("/sys");
-            let cwd = self.spec.cwd.clone().unwrap_or_else(|| "/".to_string());
-            c.arg("-w").arg(cwd);
-            c.arg("/bin/sh").arg("-c").arg(&self.spec.cmd);
-            c
-        } else {
-            let mut c = Command::new("/bin/sh");
-            c.arg("-c").arg(&self.spec.cmd);
-            if let Some(cwd) = &self.spec.cwd {
-                c.current_dir(cwd);
+        let cwd = self.spec.cwd.clone().unwrap_or_else(|| "/".to_string());
+        if let (Some(native), Some(files), Some(rootfs)) = (&self.native_dir, &self.files_dir, &self.rootfs) {
+            // prepare dirs + symlink (I/O side effect)
+            let tmp_dir = format!("{}/tmp", files);
+            let lib_dir = format!("{}/lib", files);
+            let _ = std::fs::create_dir_all(&tmp_dir);
+            let _ = std::fs::create_dir_all(&lib_dir);
+            let link = format!("{}/libtalloc.so.2", lib_dir);
+            let target = format!("{}/libtalloc.so", native);
+            let _ = std::fs::remove_file(&link);
+            #[cfg(unix)]
+            let _ = std::os::unix::fs::symlink(&target, &link);
+
+            let inv = crate::proot::build_proot_command(native, files, rootfs, &self.spec.cmd, &cwd);
+            let mut cmd = Command::new(&inv.program);
+            cmd.args(&inv.args);
+            for (k, v) in &inv.env {
+                cmd.env(k, v);
             }
-            c
-        };
-        for (k, v) in &self.spec.env {
-            cmd.env(k, v);
+            for (k, v) in &self.spec.env {
+                cmd.env(k, v);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                cmd.process_group(0);
+            }
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            cmd
+        } else {
+            let mut cmd = Command::new("/bin/sh");
+            cmd.arg("-c").arg(&self.spec.cmd);
+            if let Some(cwd) = &self.spec.cwd {
+                cmd.current_dir(cwd);
+            }
+            for (k, v) in &self.spec.env {
+                cmd.env(k, v);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                cmd.process_group(0);
+            }
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            cmd
         }
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        cmd
     }
 
     pub fn start(&self) -> Result<(), String> {
@@ -321,15 +340,17 @@ impl WaitContext {
 
 // Manager
 pub struct ServiceManager {
-    pub proot_bin: Option<String>,
+    pub native_dir: Option<String>,
+    pub files_dir: Option<String>,
     pub rootfs: Option<String>,
     pub services: HashMap<String, Arc<ServiceHandle>>,
 }
 
 impl ServiceManager {
-    pub fn new(proot_bin: Option<String>, rootfs: Option<String>) -> Self {
+    pub fn new(native_dir: Option<String>, files_dir: Option<String>, rootfs: Option<String>) -> Self {
         Self {
-            proot_bin,
+            native_dir,
+            files_dir,
             rootfs,
             services: HashMap::new(),
         }
@@ -342,7 +363,8 @@ impl ServiceManager {
             spec,
             log,
             state: Arc::new(Mutex::new(ServiceState::default())),
-            proot_bin: self.proot_bin.clone(),
+            native_dir: self.native_dir.clone(),
+            files_dir: self.files_dir.clone(),
             rootfs: self.rootfs.clone(),
         });
         self.services.insert(handle.id(), handle);
@@ -461,7 +483,7 @@ mod tests {
 
     #[test]
     fn spawn_echo_service() {
-        let mut mgr = ServiceManager::new(None, None);
+        let mut mgr = ServiceManager::new(None, None, None);
         mgr.add_service("test", dummy_spec("echo", "echo hello", RestartPolicy::No));
         let h = mgr.get("test/echo").unwrap();
         h.start().unwrap();
@@ -474,7 +496,7 @@ mod tests {
 
     #[test]
     fn spawn_failing_service_no_restart() {
-        let mut mgr = ServiceManager::new(None, None);
+        let mut mgr = ServiceManager::new(None, None, None);
         mgr.add_service("test", dummy_spec("fail", "exit 42", RestartPolicy::No));
         let h = mgr.get("test/fail").unwrap();
         h.start().unwrap();

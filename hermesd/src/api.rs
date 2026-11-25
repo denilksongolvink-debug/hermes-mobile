@@ -244,7 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_stacks_unauthorized_without_token() {
-        let mgr = Arc::new(ServiceManager::new(None, None));
+        let mgr = Arc::new(ServiceManager::new(None, None, None));
         let state = Arc::new(AppState::new(mgr, "secret".into()));
         let app = router(state);
         let resp = app
@@ -256,7 +256,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_stacks_authorized() {
-        let mut mgr = ServiceManager::new(None, None);
+        let mut mgr = ServiceManager::new(None, None, None);
         mgr.add_service("s", crate::manifest::ServiceSpec {
             name: "svc".into(),
             cmd: "echo hi".into(),
@@ -284,7 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn stats_ok() {
-        let mgr = Arc::new(ServiceManager::new(None, None));
+        let mgr = Arc::new(ServiceManager::new(None, None, None));
         let state = Arc::new(AppState::new(mgr, "".into()));
         let app = router(state);
         let resp = app

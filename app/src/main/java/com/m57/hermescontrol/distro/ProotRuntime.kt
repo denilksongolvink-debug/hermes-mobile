@@ -1,17 +1,20 @@
 package com.m57.hermescontrol.distro
 
 import android.content.Context
-import com.m57.hermescontrol.distro.DistroConfig
 import java.io.File
 
-/**
- * Wraps the proot binary shipped in jniLibs (extracted to nativeLibraryDir thanks to
- * useLegacyPackaging). Builds command lines to run programs inside the rootfs.
- */
-class ProotRuntime(private val context: Context) {
+data class ProotInvocation(
+    val program: String,
+    val args: List<String>,
+    val env: Map<String, String>,
+)
+
+class ProotRuntime(
+    private val context: Context,
+) {
     val prootBinary: File? by lazy {
         val dir = context.applicationInfo.nativeLibraryDir
-        val f = File(dir, "libproot.so")
+        val f = File(dir, "libproot-xed.so")
         if (f.exists()) f else null
     }
 
@@ -26,21 +29,46 @@ class ProotRuntime(private val context: Context) {
 
     fun isAvailable(): Boolean = prootBinary != null
 
-    /**
-     * Build a command to run [innerCmd] inside the rootfs.
-     */
-    fun buildCommand(innerCmd: String, cwd: String = "/"): List<String> {
-        val proot = prootBinary?.absolutePath ?: "proot"
-        val rootfs = rootfsDir.absolutePath
-        return listOf(
-            proot,
-            "-r", rootfs,
-            "-b", "/dev",
-            "-b", "/proc",
-            "-b", "/sys",
-            "-w", cwd,
-            "/bin/sh", "-c", innerCmd,
-        )
+    fun buildCommand(
+        innerCmd: String,
+        cwd: String = "/",
+    ): ProotInvocation {
+        val bin = hermesdBinary?.absolutePath
+        if (bin != null) {
+            try {
+                val pb = ProcessBuilder(
+                    bin,
+                    "--print-proot-cmd",
+                    "--native-dir",
+                    context.applicationInfo.nativeLibraryDir,
+                    "--files-dir",
+                    context.filesDir.absolutePath,
+                    "--rootfs",
+                    rootfsDir.absolutePath,
+                    "--inner-cmd",
+                    innerCmd,
+                    "--cwd",
+                    cwd,
+                )
+                val p = pb.start()
+                val json = p.inputStream.bufferedReader().readText()
+                p.waitFor()
+                val obj = org.json.JSONObject(json)
+                val arr = obj.getJSONArray("args")
+                val env = obj.getJSONObject("env")
+                val cmd = mutableListOf<String>()
+                for (i in 0 until arr.length()) cmd.add(arr.getString(i))
+                val envMap = mutableMapOf<String, String>()
+                val eit = env.keys()
+                while (eit.hasNext()) {
+                    val k = eit.next()
+                    envMap[k] = env.getString(k)
+                }
+                return ProotInvocation(obj.getString("program"), cmd, envMap)
+            } catch (_: Exception) {
+            }
+        }
+        return ProotInvocation("proot", emptyList(), emptyMap())
     }
 
     fun hermesdCommand(
@@ -50,16 +78,24 @@ class ProotRuntime(private val context: Context) {
         manifestsDir: File,
         rootfsUrl: String = DistroConfig.ROOTFS_URL,
         rootfsSha256: String = DistroConfig.ROOTFS_SHA256,
-    ): List<String> {
+    ): ProotInvocation {
         val bin = hermesdBinary?.absolutePath ?: "libhermesd.so"
         val cmd = mutableListOf(
             bin,
-            "--host", host,
-            "--port", port.toString(),
-            "--token", token,
-            "--proot", prootBinary?.absolutePath ?: "proot",
-            "--rootfs", rootfsDir.absolutePath,
-            "--manifests", manifestsDir.absolutePath,
+            "--host",
+            host,
+            "--port",
+            port.toString(),
+            "--token",
+            token,
+            "--native-dir",
+            context.applicationInfo.nativeLibraryDir,
+            "--files-dir",
+            context.filesDir.absolutePath,
+            "--rootfs",
+            rootfsDir.absolutePath,
+            "--manifests",
+            manifestsDir.absolutePath,
         )
         if (rootfsUrl.isNotBlank()) {
             cmd += listOf("--rootfs-url", rootfsUrl)

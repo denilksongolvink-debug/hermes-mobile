@@ -15,9 +15,17 @@ struct Args {
     #[arg(long, env = "HERMESD_TOKEN", default_value = "")]
     token: String,
     #[arg(long)]
-    proot: Option<PathBuf>,
+    native_dir: Option<PathBuf>,
+    #[arg(long)]
+    files_dir: Option<PathBuf>,
     #[arg(long)]
     rootfs: Option<PathBuf>,
+    #[arg(long)]
+    print_proot_cmd: bool,
+    #[arg(long, default_value = "")]
+    inner_cmd: String,
+    #[arg(long, default_value = "/")]
+    cwd: String,
     #[arg(long, env = "HERMESD_ROOTFS_URL", default_value = "")]
     rootfs_url: String,
     #[arg(long, env = "HERMESD_ROOTFS_SHA256", default_value = "")]
@@ -31,38 +39,68 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
 
+    if args.print_proot_cmd {
+        let native = args.native_dir.clone().unwrap_or_default();
+        let files = args.files_dir.clone().unwrap_or_default();
+        let rootfs = args.rootfs.clone().unwrap_or_default();
+        let inv = hermesd::proot::build_proot_command(
+            &native.to_string_lossy(),
+            &files.to_string_lossy(),
+            &rootfs.to_string_lossy(),
+            &args.inner_cmd,
+            &args.cwd,
+        );
+        println!("{}", serde_json::to_string(&inv).unwrap());
+        return Ok(());
+    }
+
     let rootfs_path = args.rootfs.clone();
 
     // Bootstrap rootfs if missing
     if let Some(rootfs) = &rootfs_path {
         let needs = !rootfs.join("bin/sh").exists() && !rootfs.join("usr/bin/sh").exists();
-        if needs && !args.rootfs_url.is_empty() {
+        if needs {
+            if args.rootfs_url.is_empty() {
+                eprintln!("hermesd: rootfs missing and ROOTFS_URL is empty; cannot bootstrap");
+                return Err(anyhow::anyhow!("rootfs missing and ROOTFS_URL empty"));
+            }
+            if args.rootfs_sha256.is_empty() {
+                eprintln!("hermesd: ROOTFS_SHA256 is empty; refusing to bootstrap");
+                return Err(anyhow::anyhow!("ROOTFS_SHA256 empty"));
+            }
             tracing::info!("Bootstrapping rootfs from {}", args.rootfs_url);
             std::fs::create_dir_all(rootfs).ok();
             let cache = rootfs.join(".rootfs.tar.gz");
             if let Err(e) = hermesd::rootfs::download(&args.rootfs_url, &cache) {
-                tracing::error!("download failed: {}", e);
-            } else {
-                if !args.rootfs_sha256.is_empty() {
-                    match hermesd::rootfs::sha256_file(&cache) {
-                        Ok(h) if h == args.rootfs_sha256 => {}
-                        Ok(h) => tracing::error!("sha256 mismatch: {} != {}", h, args.rootfs_sha256),
-                        Err(e) => tracing::error!("sha256 error: {}", e),
-                    }
-                }
-                let f = std::fs::File::open(&cache).unwrap();
-                if let Err(e) = hermesd::rootfs::extract_auto(f, rootfs, &args.rootfs_url) {
-                    tracing::error!("extract failed: {}", e);
-                } else {
-                    tracing::info!("Rootfs ready");
-                }
-                let _ = std::fs::remove_file(&cache);
+                eprintln!("hermesd: download failed: {}", e);
+                return Err(anyhow::anyhow!("download failed: {}", e));
             }
+            match hermesd::rootfs::sha256_file(&cache) {
+                Ok(h) if h == args.rootfs_sha256 => {}
+                Ok(h) => {
+                    eprintln!("hermesd: sha256 mismatch: {} != {}", h, args.rootfs_sha256);
+                    return Err(anyhow::anyhow!("sha256 mismatch"));
+                }
+                Err(e) => {
+                    eprintln!("hermesd: sha256 error: {}", e);
+                    return Err(anyhow::anyhow!("sha256 error: {}", e));
+                }
+            }
+            let f = std::fs::File::open(&cache).unwrap();
+            if let Err(e) = hermesd::rootfs::extract_auto(f, rootfs, &args.rootfs_url) {
+                eprintln!("hermesd: extract failed: {}", e);
+                return Err(anyhow::anyhow!("extract failed: {}", e));
+            }
+            tracing::info!("Rootfs ready");
+            let _ = std::fs::remove_file(&cache);
         }
     }
 
+    let native_str = args.native_dir.as_ref().map(|p| p.to_string_lossy().to_string());
+    let files_str = args.files_dir.as_ref().map(|p| p.to_string_lossy().to_string());
     let mut manager = ServiceManager::new(
-        args.proot.map(|p| p.to_string_lossy().to_string()),
+        native_str,
+        files_str,
         rootfs_path.as_ref().map(|p| p.to_string_lossy().to_string()),
     );
 
