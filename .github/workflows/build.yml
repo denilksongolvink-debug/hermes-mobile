@@ -20,11 +20,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK
-        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Locate NDK
+        run: |
+          NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* | head -1)
+          echo "ANDROID_NDK_HOME=$NDK" >> $GITHUB_ENV
+          echo "NDK: $NDK"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -37,11 +37,9 @@ jobs:
       - name: Build hermesd
         working-directory: hermesd
         run: |
-          export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
           cargo ndk -t arm64-v8a -o ../app/src/main/jniLibs/arm64-v8a build --release
           # cargo-ndk outputs libhermesd.so
-        env:
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
 
       - name: Build APK
         run: ./gradlew assembleDebug
