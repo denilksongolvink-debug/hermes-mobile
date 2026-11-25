@@ -56,7 +56,6 @@ class DistroService : Service() {
         val cmd = rt.hermesdCommand(token = token, manifestsDir = manifestsDir, rootfsUrl = DistroConfig.ROOTFS_URL, rootfsSha256 = DistroConfig.ROOTFS_SHA256)
         try {
             val pb = ProcessBuilder(cmd)
-            pb.redirectErrorStream(true)
             pb.directory(filesDir)
             process = pb.start()
             // drain output to a log file
